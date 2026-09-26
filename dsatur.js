@@ -131,9 +131,11 @@
     if (lb < best) {
       const color = new Array(n).fill(-1);
       const sat = new Array(n).fill(0);
-      const nbrColors = new Array(n).fill(0);
+      // n >= 10 时用单个比特掩码维护邻居颜色集合（含回溯重建）；
+      // 小图沿用 touched 列表。两条路径都必须同时服务饱和度与禁色判定。
       const compactSaturation = n >= 10;
       const saturationMask = compactSaturation ? new Array(n).fill(0) : null;
+      const nbrColors = compactSaturation ? null : new Array(n).fill(0);
       let used = 0;
       let coloredCount = 0;
 
@@ -165,8 +167,18 @@
             const u = lowbitIndex(bit);
             m ^= bit;
             if (color[u] === -1) {
-              saturationMask[u] &= ~(1 << c);
-              sat[u] = popcount(saturationMask[u]);
+              // 不能仅清掉比特 c：u 可能还有另一个已着色邻居同占 c，
+              // 须按当前已着色邻居重建颜色掩码，回溯后状态才正确。
+              let mask = 0;
+              let wm = adj[u];
+              while (wm) {
+                const wb = wm & -wm;
+                const w = lowbitIndex(wb);
+                wm ^= wb;
+                if (color[w] !== -1) mask |= 1 << color[w];
+              }
+              saturationMask[u] = mask;
+              sat[u] = popcount(mask);
             }
           }
           return;
@@ -203,7 +215,8 @@
         }
         if (used >= best) return; // 上界剪枝：继续不可能严格更优
         const v = pickVertex(color, sat, deg, n);
-        const forbid = nbrColors[v];
+        // 已着色邻居占用的频段：紧凑模式取掩码，小图模式取 touched 计数集合
+        const forbid = compactSaturation ? saturationMask[v] : nbrColors[v];
         for (let c = 0; c < used; c++) {
           if (forbid & (1 << c)) continue;
           const touched = [];

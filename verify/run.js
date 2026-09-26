@@ -145,6 +145,84 @@ test('奇环 C5 需要 3 个频段（下界 2 < 3，须经分支定界证明）'
   assert.ok(r.nodes > 0, '应实际执行分支定界搜索');
 });
 
+// 束流诊断柜十一通道网络：五通道奇环 + 五个辅助通道（各干扰环上相邻两端）
+// + 一个汇聚通道（干扰全部辅助）。下界 3 < 色数 4，须经分支定界精确判定。
+function beamNetwork() {
+  const ids = ['V1', 'V2', 'V3', 'V4', 'V5', 'A1', 'A2', 'A3', 'A4', 'A5', 'H'];
+  const pairs = [];
+  // 五通道奇环
+  pairs.push(['V1', 'V2'], ['V2', 'V3'], ['V3', 'V4'], ['V4', 'V5'], ['V5', 'V1']);
+  // 辅助通道 Ai 同时干扰环上相邻的 Vi 与 V(i+1)
+  pairs.push(
+    ['A1', 'V1'], ['A1', 'V2'],
+    ['A2', 'V2'], ['A2', 'V3'],
+    ['A3', 'V3'], ['A3', 'V4'],
+    ['A4', 'V4'], ['A4', 'V5'],
+    ['A5', 'V5'], ['A5', 'V1']
+  );
+  // 汇聚通道 H 干扰全部五个辅助通道
+  for (let i = 1; i <= 5; i++) pairs.push(['H', 'A' + i]);
+  return { ids, pairs };
+}
+
+// 结论内部一致性：色数 / 升序规范分配 / 频段清单 / 下界上界 / 统计彼此复算
+function assertCoherent(r, ids, pairs) {
+  assert.strictEqual(r.channels.length, ids.length);
+  assert.deepStrictEqual(
+    r.channels,
+    ids.slice().sort(),
+    '通道序列应按标识升序'
+  );
+  assert.strictEqual(r.bands.length, r.k, '频段清单条数应等于最少频段数');
+  assert.ok(r.lb <= r.k && r.k <= r.ub, '下界 / 色数 / 初始上界应有序');
+  assert.ok(r.nodes > 0, '下界未达色数时应实际执行分支定界');
+  // 频段清单是全部通道的一个划分
+  const listed = r.bands.flat();
+  assert.deepStrictEqual(listed.slice().sort(), r.channels, '频段清单应恰好覆盖全部通道');
+  // 规范编号：频段按组内最小通道标识升序排列，每组内部按标识升序
+  const mins = r.bands.map((g) => g[0]);
+  for (let i = 1; i < mins.length; i++) {
+    assert.ok(mins[i - 1] < mins[i], '频段应按组内最小标识升序编号');
+  }
+  // 逐边跨频段：每条已录入干扰关系的两端必须分属不同频段
+  for (const [a, b] of pairs) {
+    assert.ok(r.bandOf[a] >= 1 && r.bandOf[a] <= r.k, `通道 ${a} 频段越界`);
+    assert.notStrictEqual(r.bandOf[a], r.bandOf[b], `干扰边 ${a}-${b} 落在同一频段`);
+  }
+  assert.strictEqual(DSATUR.verifyAssignment(pairs, r.bandOf).length, 0);
+}
+
+test('十一通道网络精确判定为 4 个频段，且结论各部分彼此一致', () => {
+  const { ids, pairs } = beamNetwork();
+  assert.strictEqual(ids.length, 11);
+  assert.strictEqual(pairs.length, 20, '5 环边 + 10 辅助边 + 5 汇聚边');
+  const r = DSATUR.solveGraph(ids, pairs);
+  assert.strictEqual(r.k, 4, '该网络必须精确判定为 4 个频段');
+  assert.strictEqual(r.lb, 3, '辅助-环边构成三角形，最大团下界为 3');
+  assertCoherent(r, ids, pairs);
+  // 与暴力色数交叉验证：确为 4 色、非 3 色
+  const sorted = ids.slice().sort();
+  const index = new Map(sorted.map((id, i) => [id, i]));
+  const numPairs = pairs.map(([a, b]) => [index.get(a), index.get(b)]);
+  assert.strictEqual(bruteChi(ids.length, numPairs), 4);
+});
+
+test('十一通道网络重排录入顺序（通道 / 边 / 端点方向）后规范结论不变', () => {
+  const { ids, pairs } = beamNetwork();
+  const base = DSATUR.solveGraph(ids, pairs);
+  const rand = lcg(2026092611);
+  for (let t = 0; t < 10; t++) {
+    const [ids2, pairs2] = reorder(ids, pairs, rand);
+    const r = DSATUR.solveGraph(ids2, pairs2);
+    assert.strictEqual(r.k, 4, '重排后色数改变');
+    assert.strictEqual(r.lb, base.lb, '重排后最大团下界改变');
+    assert.strictEqual(r.nodes, base.nodes, '重排后分支定界节点数改变');
+    assert.deepStrictEqual(r.bandOf, base.bandOf, '重排后规范分配改变');
+    assert.deepStrictEqual(r.bands, base.bands, '重排后频段清单改变');
+    assertCoherent(r, ids, pairs);
+  }
+});
+
 test('无干扰边时只需 1 个频段', () => {
   const r = DSATUR.solveGraph(['A', 'B', 'C'], []);
   assert.strictEqual(r.k, 1);
@@ -181,6 +259,7 @@ test('随机小图上与暴力色数一致（精确性交叉验证）', () => {
   const rand = lcg(1234567);
   let searched = 0;
   for (let t = 0; t < 200; t++) {
+    // 2..8 顶点可取较密边率
     const n = 2 + Math.floor(rand() * 7); // 2..8 个顶点
     const p = 0.15 + rand() * 0.6;
     const pairs = [];
@@ -201,6 +280,85 @@ test('随机小图上与暴力色数一致（精确性交叉验证）', () => {
     if (res.nodes > 0) searched++;
   }
   assert.ok(searched > 0, '应有样例实际触发分支定界搜索');
+});
+
+test('n>=10 紧凑饱和度路径上与暴力色数一致（回归：禁色掩码 / 回溯重建）', () => {
+  const rand = lcg(7654321);
+  let compact = 0;
+  // 10..11 顶点、较稀疏：暴力色数仍可瞬时完成，同时强制走紧凑路径
+  for (let t = 0; t < 120; t++) {
+    const n = 10 + Math.floor(rand() * 2);
+    const p = 0.1 + rand() * 0.35;
+    const pairs = [];
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (rand() < p) pairs.push([i, j]);
+      }
+    }
+    const adj = new Array(n).fill(0);
+    for (const [a, b] of pairs) {
+      adj[a] |= 1 << b;
+      adj[b] |= 1 << a;
+    }
+    const res = DSATUR.exactColor(adj, n);
+    const expect = bruteChi(n, pairs);
+    assert.strictEqual(res.k, expect, `紧凑图 ${t} 色数不符：${JSON.stringify({ n, pairs })}`);
+    assert.ok(res.lb <= res.k && res.k <= res.ub0, '下界/上界应夹住色数');
+    // 解本身必须合法：所有边两端异色
+    for (let v = 0; v < n; v++) {
+      let m = adj[v];
+      while (m) {
+        const bit = m & -m;
+        m ^= bit;
+        const u = Math.log2(bit) | 0;
+        assert.notStrictEqual(
+          res.colors[v],
+          res.colors[u],
+          `紧凑图 ${t} 存在同色相邻顶点 ${v}-${u}`
+        );
+      }
+    }
+    if (res.nodes > 0) compact++;
+  }
+  assert.ok(compact > 0, '应有样例在紧凑路径上实际触发分支定界搜索');
+});
+
+test('紧凑路径上无三角形 4 色图（Grötzsch / Mycielski-C7）判定正确', () => {
+  // Grötzsch 图：11 顶点、4 色、最大团 2 —— 深度回溯才能区分 3/4 色
+  const gro = [
+    [0, 1], [1, 2], [2, 3], [3, 4], [4, 0],
+    [0, 6], [1, 5], [1, 7], [2, 6], [2, 8],
+    [3, 7], [3, 9], [4, 8], [4, 5], [0, 9],
+    [10, 5], [10, 6], [10, 7], [10, 8], [10, 9],
+  ];
+  const adj11 = new Array(11).fill(0);
+  for (const [a, b] of gro) {
+    adj11[a] |= 1 << b;
+    adj11[b] |= 1 << a;
+  }
+  const r1 = DSATUR.exactColor(adj11, 11);
+  assert.strictEqual(r1.k, 4);
+  assert.strictEqual(r1.lb, 2, 'Grötzsch 图无三角形');
+  assert.strictEqual(bruteChi(11, gro), 4);
+
+  // Mycielski(C7)：15 顶点、4 色、最大团 2
+  const L = 7;
+  const n15 = 2 * L + 1;
+  const my = [];
+  for (let i = 0; i < L; i++) {
+    const j = (i + 1) % L;
+    my.push([i, j], [i, j + L], [j, i + L]);
+  }
+  for (let i = 0; i < L; i++) my.push([2 * L, i + L]);
+  const adj15 = new Array(n15).fill(0);
+  for (const [a, b] of my) {
+    adj15[a] |= 1 << b;
+    adj15[b] |= 1 << a;
+  }
+  const r2 = DSATUR.exactColor(adj15, n15);
+  assert.strictEqual(r2.k, 4);
+  assert.strictEqual(r2.lb, 2);
+  assert.ok(r2.nodes > 0, '下界 2 < 4，必须实际分支定界');
 });
 
 test('随机图上录入重排后规范分配保持一致', () => {
