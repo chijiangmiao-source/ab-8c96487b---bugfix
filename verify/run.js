@@ -109,6 +109,25 @@ function bruteChi(n, pairs) {
   return n;
 }
 
+/*
+ * 十一通道网络：五通道奇环 R1..R5；
+ * 辅助通道 A1..A5，Ai 同时干扰环上相邻的 Ri 与 R(i+1)；
+ * 汇聚通道 H 干扰全部五个辅助通道。
+ * 该图含 5 个三角形（Ai-Ri-R(i+1)）但无 K4，故最大团下界为 3，
+ * 而色数为 4 —— 必须经分支定界证明，是最易暴露求解器缺陷的用例。
+ */
+function buildElevenChannelNetwork() {
+  const ring = ['R1', 'R2', 'R3', 'R4', 'R5'];
+  const aux = ['A1', 'A2', 'A3', 'A4', 'A5'];
+  const hub = 'H';
+  const ids = ring.concat(aux, [hub]);
+  const pairs = [];
+  for (let i = 0; i < 5; i++) pairs.push([ring[i], ring[(i + 1) % 5]]);
+  for (let i = 0; i < 5; i++) pairs.push([aux[i], ring[i]], [aux[i], ring[(i + 1) % 5]]);
+  for (let i = 0; i < 5; i++) pairs.push([hub, aux[i]]);
+  return { ids, pairs };
+}
+
 /* ---------- 1. 代码测试：DSATUR 精确求解 ---------- */
 
 test('三角冲突需要 3 个频段', () => {
@@ -143,6 +162,60 @@ test('奇环 C5 需要 3 个频段（下界 2 < 3，须经分支定界证明）'
   assert.strictEqual(r.k, 3);
   assert.strictEqual(r.lb, 2, 'C5 最大团为 2');
   assert.ok(r.nodes > 0, '应实际执行分支定界搜索');
+});
+
+test('十一通道网络（奇环 + 辅助 + 汇聚）精确判定为 4 个频段，逐边跨频段', () => {
+  const { ids, pairs } = buildElevenChannelNetwork();
+  assert.strictEqual(ids.length, 11);
+  assert.strictEqual(pairs.length, 20);
+  const r = DSATUR.solveGraph(ids, pairs);
+
+  // 最少频段数、下界、上界与分支定界统计彼此一致
+  assert.strictEqual(r.k, 4, '该网络必须精确判定为 4 个频段');
+  assert.strictEqual(r.lb, 3, '含三角形但无 K4，最大团下界应为 3');
+  assert.strictEqual(r.ub, 4, '贪心初始上界应为 4');
+  assert.ok(r.lb <= r.k && r.k <= r.ub, '下界/上界应夹住色数');
+  assert.ok(r.nodes > 0, 'lb=3 < ub=4，必须经分支定界证明');
+
+  // 每一条干扰关系的两端都分属不同频段
+  assert.deepStrictEqual(DSATUR.verifyAssignment(pairs, r.bandOf), [], '存在两端同频段的干扰边');
+
+  // 频段清单：4 个频段、恰好划分全部 11 个通道、组内无干扰边
+  assert.strictEqual(r.bands.length, 4);
+  const sortedIds = ids.slice().sort();
+  assert.deepStrictEqual(r.channels, sortedIds);
+  assert.deepStrictEqual(r.bands.flat().slice().sort(), sortedIds, '频段清单应恰好覆盖全部通道');
+  for (const id of sortedIds) {
+    const b = r.bandOf[id];
+    assert.ok(b >= 1 && b <= 4, `通道 ${id} 的频段编号越界`);
+    assert.ok(r.bands[b - 1].includes(id), `bandOf 与频段清单对 ${id} 不一致`);
+  }
+  // 规范编号：频段按其最小通道标识升序，最小程序通道落在频段 1
+  assert.strictEqual(r.bandOf[sortedIds[0]], 1);
+  for (let i = 0; i + 1 < r.bands.length; i++) {
+    assert.ok(r.bands[i][0] < r.bands[i + 1][0], '频段应按各自最小通道标识升序');
+  }
+
+  // 与暴力色数交叉验证（顶点顺序即 ids 顺序）
+  const idx = new Map(ids.map((id, i) => [id, i]));
+  const brute = bruteChi(ids.length, pairs.map(([a, b]) => [idx.get(a), idx.get(b)]));
+  assert.strictEqual(brute, 4, '暴力色数应为 4');
+  assert.strictEqual(r.k, brute);
+});
+
+test('十一通道网络录入重排后规范结论一致', () => {
+  const { ids, pairs } = buildElevenChannelNetwork();
+  const base = DSATUR.solveGraph(ids, pairs);
+  const rand = lcg(115511);
+  for (let t = 0; t < 12; t++) {
+    const [ids2, pairs2] = reorder(ids, pairs, rand);
+    const r = DSATUR.solveGraph(ids2, pairs2);
+    assert.strictEqual(r.k, 4, `第 ${t} 次重排后色数改变`);
+    assert.strictEqual(r.lb, base.lb, `第 ${t} 次重排后下界改变`);
+    assert.deepStrictEqual(r.bandOf, base.bandOf, `第 ${t} 次重排后规范分配改变`);
+    assert.deepStrictEqual(r.bands, base.bands, `第 ${t} 次重排后频段清单改变`);
+    assert.deepStrictEqual(DSATUR.verifyAssignment(pairs, r.bandOf), [], `第 ${t} 次重排后出现同频段干扰边`);
+  }
 });
 
 test('无干扰边时只需 1 个频段', () => {

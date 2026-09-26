@@ -132,11 +132,12 @@
       const color = new Array(n).fill(-1);
       const sat = new Array(n).fill(0);
       const nbrColors = new Array(n).fill(0);
-      const compactSaturation = n >= 10;
-      const saturationMask = compactSaturation ? new Array(n).fill(0) : null;
       let used = 0;
       let coloredCount = 0;
 
+      // touched 记录本次 assign 实际置位的邻居：
+      // 同一颜色可能已被其他已着色邻居置位，只有真正置位者才能在回溯时复位，
+      // 否则会提前清掉仍被其他邻居占用的颜色，产生非法着色。
       function assign(v, c, touched) {
         color[v] = c;
         let m = adj[v];
@@ -144,33 +145,15 @@
           const bit = m & -m;
           const u = lowbitIndex(bit);
           m ^= bit;
-          if (color[u] === -1) {
-            if (compactSaturation) {
-              saturationMask[u] |= 1 << c;
-              sat[u] = popcount(saturationMask[u]);
-            } else if (!(nbrColors[u] & (1 << c))) {
-              nbrColors[u] |= 1 << c;
-              sat[u]++;
-              touched.push(u);
-            }
+          if (color[u] === -1 && !(nbrColors[u] & (1 << c))) {
+            nbrColors[u] |= 1 << c;
+            sat[u]++;
+            touched.push(u);
           }
         }
       }
       function unassign(v, c, touched) {
         color[v] = -1;
-        if (compactSaturation) {
-          let m = adj[v];
-          while (m) {
-            const bit = m & -m;
-            const u = lowbitIndex(bit);
-            m ^= bit;
-            if (color[u] === -1) {
-              saturationMask[u] &= ~(1 << c);
-              sat[u] = popcount(saturationMask[u]);
-            }
-          }
-          return;
-        }
         for (let i = 0; i < touched.length; i++) {
           const u = touched[i];
           nbrColors[u] &= ~(1 << c);
