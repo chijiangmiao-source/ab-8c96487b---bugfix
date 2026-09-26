@@ -1,0 +1,10 @@
+{
+  "name": "band-alloc",
+  "version": "1.0.0",
+  "private": true,
+  "description": "束流诊断柜读出通道频段分配：浏览器 Worker 内确定性 DSATUR 分支定界精确图着色",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node verify/run.js"
+  }
+}

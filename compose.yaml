@@ -1,0 +1,30 @@
+# 频段分配页面：web 提供页面，verify 运行代码测试 / 构建检查 / HTTP 冒烟后退出。
+#
+# 运行页面：  APP_PORT=8080 docker compose up web
+# 运行验证：  docker compose up --exit-code-from verify verify
+#             （退出码即 verify 容器退出码：0 通过，1 失败）
+
+services:
+  web:
+    build: .
+    image: band-alloc-web
+    environment:
+      PORT: 8080
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:$${PORT:-8080}/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  verify:
+    build: .
+    image: band-alloc-web
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      WEB_URL: http://web:8080
+    command: ["node", "verify/run.js"]

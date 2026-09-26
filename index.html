@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>束流诊断柜 · 读出通道频段分配</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>束流诊断柜 · 读出通道频段分配</h1>
+      <p>
+        改接后为相互干扰的读出通道分配最少频段。求解在浏览器 Worker 中以确定性
+        DSATUR 分支定界完成，结合可行上界与可证明下界剪枝，精确判定色数。
+      </p>
+    </header>
+    <main>
+      <section class="panel">
+        <h2>录入</h2>
+        <label for="channels">通道标识（2–26 个唯一标识，以空白 / 逗号分隔）</label>
+        <textarea id="channels" rows="3" spellcheck="false">CH1 CH2 CH3</textarea>
+        <label for="edges">干扰关系（每行两个通道标识的无向边，至多 120 条）</label>
+        <textarea id="edges" rows="6" spellcheck="false">CH1 CH2
+CH2 CH3
+CH1 CH3</textarea>
+        <div class="actions">
+          <button id="submit" type="button">提交求解</button>
+          <button id="cancel" type="button" disabled>取消</button>
+          <span class="examples">
+            示例：
+            <button type="button" data-example="triangle">三角冲突</button>
+            <button type="button" data-example="k4">四通道完全冲突</button>
+            <button type="button" data-example="chain">二分链式</button>
+          </span>
+        </div>
+        <p id="status" role="status"></p>
+        <ul id="errors" class="errors"></ul>
+      </section>
+
+      <section class="panel" id="resultPanel" hidden>
+        <h2>结论</h2>
+        <p id="stale" class="stale" hidden>输入已修改，以下结论已失效，请重新提交。</p>
+        <p id="summary" class="summary"></p>
+        <h3>规范频段编号（按通道标识升序裁决）</h3>
+        <table id="assignment">
+          <thead>
+            <tr><th>通道</th><th>频段</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <h3>频段清单</h3>
+        <ul id="bands"></ul>
+        <p id="verification"></p>
+      </section>
+    </main>
+    <script src="validate.js"></script>
+    <script src="main.js"></script>
+  </body>
+</html>
